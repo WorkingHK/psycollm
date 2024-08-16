@@ -1,0 +1,58 @@
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer
+from datasets import load_dataset
+
+# Load the base model and tokenizer
+model_name = "Qwen/Qwen1.5-14B-Chat"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+# Load your psychological dataset
+# This is a placeholder - you'll need to prepare your actual dataset
+def load_psych_dataset():
+    dataset = load_dataset('json', data_files='psych_dataset_demo.json')
+    
+    def format_text(example):
+        if example['type'] == 'single_turn_qa':
+            return {'text': f"Question: {example['question']}\nAnswer: {example['answer']}"}
+        elif example['type'] == 'multi_turn_dialogue':
+            dialogue_text = "\n".join([f"{turn['role'].capitalize()}: {turn['content']}" for turn in example['dialogue']])
+            return {'text': dialogue_text}
+        elif example['type'] == 'knowledge_qa':
+            return {'text': f"Question: {example['question']}\nAnswer: {example['answer']}"}
+    
+    return dataset.map(format_text)
+
+dataset = load_psych_dataset()
+
+# Tokenize the dataset
+def tokenize_function(examples):
+    return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=512)
+
+tokenized_dataset = dataset.map(tokenize_function, batched=True)
+
+# Define training arguments
+training_args = TrainingArguments(
+    output_dir="./psycollm",
+    num_train_epochs=3,
+    per_device_train_batch_size=8,
+    per_device_eval_batch_size=8,
+    warmup_steps=500,
+    weight_decay=0.01,
+    logging_dir="./logs",
+    logging_steps=10,
+)
+
+# Initialize Trainer
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_dataset["train"],
+    eval_dataset=tokenized_dataset["validation"],
+)
+
+# Fine-tune the model
+trainer.train()
+
+# Save the fine-tuned model
+trainer.save_model("./psycollm_final")
